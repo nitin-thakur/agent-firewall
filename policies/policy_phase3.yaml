@@ -1,0 +1,36 @@
+# FROZEN Phase 3 policy, kept so you can compare it with the Phase 4 policy (policy.yaml).
+# Firewall policy (Phase 3). Every tool call is checked against this file.
+# action: allow | ask | block.  "ask" needs user approval - the approval prompt arrives in Phase 6,
+# until then "ask" is treated as "block".
+version: 1
+default_action: block        # tools that are not listed here are blocked
+
+tools:
+  read_file:
+    action: allow
+    blocked_path_patterns:    # matched against the file name and the relative path (case-insensitive)
+      - "secrets*"
+      - ".env*"
+      - "*.key"
+      - "*.pem"
+      - "id_rsa*"
+      - "*password*"
+
+  send_email:
+    action: allow
+    allowed_recipient_domains:
+      - company.com
+    blocked_attachment_patterns:
+      - "secrets*"
+      - ".env*"
+      - "*.key"
+      - "*.pem"
+      - "id_rsa*"
+      - "*password*"
+
+  make_payment:
+    action: allow
+    allowed_payees:           # empty list = any payee allowed
+      - electricity@upi
+      - rent@upi
+    max_amount: 500           # above this the firewall says "ask"

@@ -1,0 +1,53 @@
+# Firewall policy (Phase 4). Every tool call is checked against this file.
+# action: allow | ask | block.  "ask" needs user approval - the approval prompt arrives in Phase 6,
+# until then "ask" is treated as "block".
+#
+# Phase 4 additions (all optional per tool):
+#   max_calls              how many times the tool may run in ONE agent run
+#   max_total_amount       total rupees make_payment may move in ONE agent run
+#   max_body_chars         longest allowed email body
+#   blocked_body_patterns  regexes (case-insensitive); an email whose subject/body matches is blocked
+version: 1
+default_action: block        # tools that are not listed here are blocked
+
+tools:
+  read_file:
+    action: allow
+    max_calls: 10
+    blocked_path_patterns:    # matched against the file name and the relative path (case-insensitive)
+      - "secrets*"
+      - ".env*"
+      - "*.key"
+      - "*.pem"
+      - "id_rsa*"
+      - "*password*"
+
+  send_email:
+    action: allow
+    max_calls: 3
+    max_body_chars: 1000
+    allowed_recipient_domains:
+      - company.com
+    blocked_attachment_patterns:
+      - "secrets*"
+      - ".env*"
+      - "*.key"
+      - "*.pem"
+      - "id_rsa*"
+      - "*password*"
+    blocked_body_patterns:
+      - 'api[_-]?key\s*[=:]'
+      - 'password\s*[=:]'
+      - 'sk-[A-Za-z0-9_-]{8,}'
+      - 'BEGIN (RSA |EC )?PRIVATE KEY'
+      - '\b[A-Z]{5}[0-9]{4}[A-Z]\b'          # PAN-card-like number
+      - '\b[0-9]{4}\s?[0-9]{4}\s?[0-9]{4}\b' # Aadhaar-like number
+
+  make_payment:
+    action: allow
+    max_calls: 3
+    allowed_payees:           # empty list = any payee allowed
+      - electricity@upi
+      - rent@upi
+    max_amount: 500           # per payment: above this the firewall says "ask"
+    max_total_amount: 1000    # per run: above this the firewall blocks

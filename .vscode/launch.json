@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Demo: all scenarios (mock LLM)",
+      "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/run_demo.py",
+      "args": ["--all"], "console": "integratedTerminal"
+    },
+    {
+      "name": "Demo: exfil attack, firewall OFF",
+      "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/run_demo.py",
+      "args": ["--scenario", "attack_exfil", "--firewall", "off"], "console": "integratedTerminal"
+    },
+    {
+      "name": "Demo: exfil attack, firewall ON",
+      "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/run_demo.py",
+      "args": ["--scenario", "attack_exfil", "--firewall", "on"], "console": "integratedTerminal"
+    },
+    {
+      "name": "Demo: exfil attack, Ollama, firewall ON",
+      "type": "debugpy", "request": "launch", "program": "${workspaceFolder}/run_demo.py",
+      "args": ["--scenario", "attack_exfil", "--llm", "ollama", "--firewall", "on"], "console": "integratedTerminal"
+    }
+  ]
+}
