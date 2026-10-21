@@ -84,6 +84,13 @@
       "request": "launch",
       "program": "${workspaceFolder}/compare_policies.py",
       "console": "integratedTerminal"
+    },
+    {
+      "name": "Phase 7: run the evaluation",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/evaluate.py",
+      "console": "integratedTerminal"
     }
   ]
 }
