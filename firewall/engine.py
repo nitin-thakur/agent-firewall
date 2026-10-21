@@ -1,12 +1,15 @@
-"""Firewall (Phase 3 + 4): intercept every tool call, decide allow / ask / block, log it.
+"""Firewall (Phase 3-5): intercept every tool call, decide allow / ask / block, log it.
 
 Phase 4 adds per-run state (call counts, running payment total) and email body checks.
+Phase 5 adds provenance: arguments that appear only in content the agent read (not in the user's
+request) are escalated. When several checks fire, the STRICTEST decision wins (block > ask > allow).
 """
 import fnmatch
 import re
 from dataclasses import dataclass
 
 from firewall.audit import AuditLog
+from firewall.provenance import LABELS, ProvenanceTracker
 from tools.paths import resolve_in_sandbox
 
 
@@ -19,6 +22,18 @@ class Decision:
 
 def _allow(reason="passed all policy checks"):
     return Decision("allow", reason, "")
+
+
+_SEVERITY = {"allow": 0, "ask": 1, "block": 2}
+
+
+def _strictest(decisions):
+    """Pick the strictest decision; on a tie the earliest one wins. Returns None for an empty list."""
+    best = None
+    for d in decisions:
+        if d is not None and (best is None or _SEVERITY[d.action] > _SEVERITY[best.action]):
+            best = d
+    return best
 
 
 def _matches(path: str, patterns) -> str:
@@ -53,6 +68,42 @@ class Firewall:
         self.audit = audit
         self.approver = approver  # Phase 6: callable(tool, args, decision) -> bool
         self.state = {}           # per-run counters: tool -> {"calls": int, "total": float}
+        self.prov = ProvenanceTracker(policy.get("provenance"))   # Phase 5
+        self.decisions = []       # (tool, action, rule, approved) for every guarded call
+
+    # ---------- Phase 5: provenance ----------
+    def set_user_request(self, text: str) -> None:
+        """Tell the firewall what the USER actually asked for (the only trusted text)."""
+        self.prov.set_user_request(text)
+
+    def observe(self, tool: str, args: dict, result) -> None:
+        """Record outside content that entered the agent's context (e.g. the text of a file it read)."""
+        if not self.prov.enabled or tool not in self.prov.untrusted_tools or not isinstance(result, str):
+            return
+        if result.startswith(("ERROR", "BLOCKED")):
+            return
+        source = (args or {}).get("path") or tool
+        self.prov.add_untrusted(source, result)
+
+    def _check_provenance(self, tool, args):
+        if not self.prov.enabled:
+            return None
+        found = []
+        for name in self.prov.checked_args.get(tool, []):
+            status, source = self.prov.classify(name, args.get(name))
+            label = LABELS.get(name, name)
+            value = args.get(name)
+            if status == "untrusted" and self.prov.on_untrusted != "allow":
+                found.append(Decision(
+                    self.prov.on_untrusted,
+                    f"{tool}: {label} '{value}' appears only in content the agent read ({source}), "
+                    f"not in your request - possible prompt injection", "provenance"))
+            elif status == "unknown" and self.prov.on_unknown != "allow":
+                found.append(Decision(
+                    self.prov.on_unknown,
+                    f"{tool}: {label} '{value}' does not come from your request or from anything "
+                    f"the agent read", "provenance_unknown"))
+        return _strictest(found)
 
     def _st(self, tool):
         return self.state.setdefault(tool, {"calls": 0, "total": 0.0})
@@ -77,17 +128,17 @@ class Firewall:
         if action == "block":
             return Decision("block", f"tool '{tool}' is disabled by policy", "tool_action")
 
+        candidates = []
         checker = getattr(self, f"_check_{tool}", None)
         if checker:
-            problem = checker(args, rules)
-            if problem:
-                return problem
+            candidates.append(checker(args, rules))
         max_calls = rules.get("max_calls")
         if max_calls is not None and self._st(tool)["calls"] >= max_calls:
-            return Decision("block", f"{tool}: call limit reached ({max_calls} per run)", "max_calls")
+            candidates.append(Decision("block", f"{tool}: call limit reached ({max_calls} per run)", "max_calls"))
+        candidates.append(self._check_provenance(tool, args))
         if action == "ask":
-            return Decision("ask", f"tool '{tool}' always requires approval", "tool_action")
-        return _allow()
+            candidates.append(Decision("ask", f"tool '{tool}' always requires approval", "tool_action"))
+        return _strictest(candidates) or _allow()
 
     def _check_read_file(self, args, rules):
         return _check_path(args.get("path"), rules.get("blocked_path_patterns"), "read_file")
@@ -145,14 +196,24 @@ class Firewall:
         decision = self.evaluate(tool, args)
         approved = None
         if decision.action == "ask" and self.approver is not None:
-            approved = bool(self.approver(tool, args, decision))
+            try:
+                approved = self.approver(tool, args, decision) is True   # only a real True counts
+            except Exception as e:  # noqa: BLE001 - fail closed: an approver error is a "no"
+                approved = False
+                decision = Decision("ask", f"{decision.reason} [approver failed: {type(e).__name__}; treated as no]",
+                                    decision.rule)
 
         if self.audit:
             self.audit.log(tool, args, decision.action, decision.reason, decision.rule, approved)
+        self.decisions.append((tool, decision.action, decision.rule, approved))
 
         if decision.action == "allow" or approved:
             self._record(tool, args)
-            return execute(tool, args)
+            result = execute(tool, args)
+            self.observe(tool, args, result)
+            return result
         if decision.action == "ask":
-            return f"BLOCKED by firewall (needs user approval, not available yet): {decision.reason}"
+            if self.approver is None:
+                return f"BLOCKED by firewall (needs user approval, but no approver is configured): {decision.reason}"
+            return f"BLOCKED by firewall (you denied this action): {decision.reason}"
         return f"BLOCKED by firewall: {decision.reason}"

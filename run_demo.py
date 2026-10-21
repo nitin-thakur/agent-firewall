@@ -6,11 +6,14 @@ Examples (from the project folder, with the venv active or via .venv\\Scripts\\p
   python run_demo.py --scenario attack_exfil --firewall on   # watch the firewall stop it
   python run_demo.py --scenario attack_exfil --llm ollama    # use the real local model
   python run_demo.py --all --policy policies/policy_phase3.yaml   # compare with the old Phase 3 rules
+  python run_demo.py --scenario benign_pay_bill               # Phase 6: you get a y/N prompt
+  python run_demo.py --scenario attack_internal_leak --approve yes   # what if the user wrongly says yes?
 """
 import argparse
 import sys
 
 from attacks.scenarios import SCENARIOS
+from firewall.approval import default_mode
 from runner import run_scenario
 
 
@@ -23,14 +26,19 @@ def main():
     ap.add_argument("--llm", choices=["mock", "ollama"], default="mock")
     ap.add_argument("--firewall", choices=["on", "off"], default="on")
     ap.add_argument("--policy", default=None, help="path to a policy YAML (default: policies/policy.yaml)")
+    ap.add_argument("--approve", choices=["ask", "yes", "no"], default=None,
+                    help="what to do when the firewall asks: ask = prompt you (default when run in a terminal), "
+                         "yes = auto-approve (demo only!), no = auto-deny (default when not interactive)")
     ap.add_argument("--all", action="store_true", help="run every scenario with firewall off and on")
     args = ap.parse_args()
+    mode = args.approve or ("no" if args.all else default_mode())   # --all never blocks waiting for a keyboard
 
     if args.all:
         rows = []
         for name, sc in SCENARIOS.items():
             for fw in (False, True):
-                rows.append(run_scenario(sc, args.llm, fw, verbose=True, policy_path=args.policy))
+                rows.append(run_scenario(sc, args.llm, fw, verbose=True, policy_path=args.policy,
+                                        approve_mode=mode))
         print("\n" + "=" * 78)
         print(f"{'scenario':<24}{'firewall':<10}{'result'}")
         print("-" * 100)
@@ -40,7 +48,7 @@ def main():
         print("Audit log of firewall decisions: logs/audit.jsonl")
     else:
         run_scenario(SCENARIOS[args.scenario], args.llm, args.firewall == "on", verbose=True,
-                     policy_path=args.policy)
+                     policy_path=args.policy, approve_mode=mode)
 
 
 if __name__ == "__main__":

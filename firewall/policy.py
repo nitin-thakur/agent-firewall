@@ -24,6 +24,7 @@ def validate_policy(policy: dict) -> dict:
         raise ValueError(f"default_action must be one of {sorted(VALID_ACTIONS)}")
     if not isinstance(policy["tools"], dict):
         raise ValueError("'tools' must be a mapping")
+    _validate_provenance(policy.get("provenance"))
     for tool, rules in policy["tools"].items():
         if not isinstance(rules, dict):
             raise ValueError(f"Rules for '{tool}' must be a mapping")
@@ -50,6 +51,34 @@ def validate_policy(policy: dict) -> dict:
             except re.error as e:
                 raise ValueError(f"Bad regex in '{tool}.blocked_body_patterns': {pattern!r} ({e})") from e
     return policy
+
+
+PROVENANCE_KEYS = {"enabled", "untrusted_tools", "on_untrusted_argument", "on_unknown_argument", "checked_args"}
+
+
+def _validate_provenance(prov) -> None:
+    if prov is None:
+        return
+    if not isinstance(prov, dict):
+        raise ValueError("'provenance' must be a mapping")
+    unknown = set(prov) - PROVENANCE_KEYS
+    if unknown:
+        raise ValueError(f"Unknown keys in 'provenance': {sorted(unknown)}")
+    if "enabled" in prov and not isinstance(prov["enabled"], bool):
+        raise ValueError("'provenance.enabled' must be true or false")
+    for key in ("on_untrusted_argument", "on_unknown_argument"):
+        if key in prov and prov[key] not in VALID_ACTIONS:
+            raise ValueError(f"'provenance.{key}' must be one of {sorted(VALID_ACTIONS)}")
+    tools = prov.get("untrusted_tools")
+    if tools is not None and (not isinstance(tools, list) or not all(isinstance(t, str) for t in tools)):
+        raise ValueError("'provenance.untrusted_tools' must be a list of tool names")
+    checked = prov.get("checked_args")
+    if checked is not None:
+        if not isinstance(checked, dict):
+            raise ValueError("'provenance.checked_args' must be a mapping of tool -> list of argument names")
+        for tool, names in checked.items():
+            if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+                raise ValueError(f"'provenance.checked_args.{tool}' must be a list of argument names")
 
 
 def load_policy(path) -> dict:

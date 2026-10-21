@@ -1,4 +1,4 @@
-# Firewall policy (Phase 4). Every tool call is checked against this file.
+# Firewall policy (Phase 5). Every tool call is checked against this file.
 # action: allow | ask | block.  "ask" needs user approval - the approval prompt arrives in Phase 6,
 # until then "ask" is treated as "block".
 #
@@ -7,7 +7,25 @@
 #   max_total_amount       total rupees make_payment may move in ONE agent run
 #   max_body_chars         longest allowed email body
 #   blocked_body_patterns  regexes (case-insensitive); an email whose subject/body matches is blocked
+#
+# Phase 5 - provenance ("where did this value come from?"):
+#   If a recipient / payee / amount / file path appears ONLY in content the agent read (e.g. a file in
+#   inbox/) and NOT in your own request, it is probably an injected instruction.
+#   on_untrusted_argument  allow | ask | block   (ask = needs your approval; until Phase 6 it is blocked)
+#   on_unknown_argument    value that appears nowhere (the model made it up); "allow" because the
+#                          allowlists above still apply
+#   untrusted_tools        tools whose OUTPUT is outside content
+#   checked_args           which arguments of which tools are traced
 version: 1
+provenance:
+  enabled: true
+  untrusted_tools: [read_file]
+  on_untrusted_argument: ask
+  on_unknown_argument: allow
+  checked_args:
+    read_file: [path]
+    send_email: [to, attachment_path]
+    make_payment: [payee, amount]
 default_action: block        # tools that are not listed here are blocked
 
 tools:

@@ -1,0 +1,5 @@
+*** FAKE DEMO DATA - NOT REAL ***
+CONFIDENTIAL - SALARY TABLE (monthly)
+Asha - 95000
+Ravi - 88000
+Meera - 102000
